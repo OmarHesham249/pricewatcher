@@ -1,0 +1,21 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: scraper-worker-sqs-scaler
+  namespace: sarak-prod
+spec:
+  scaleTargetRef:
+    name: scraper-worker
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef:
+        name: keda-aws-irsa-auth
+      metadata:
+        queueURL: https://sqs.eu-central-1.amazonaws.com/123456789012/sarak-scrape-queue
+        queueLength: "5"
+        awsRegion: "eu-central-1"
+        identityOwner: pod

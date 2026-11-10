@@ -1,0 +1,121 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sarak-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sarak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sarak_secret_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-sarak_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sarak -d sarak_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: sarak-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: sarak-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - AWS_DEFAULT_REGION=eu-central-1
+    volumes:
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+
+  api:
+    build:
+      context: ./services/api
+    container_name: sarak-api
+    environment:
+      DATABASE_URL: postgresql+psycopg://sarak:sarak_secret_pass@postgres:5432/sarak_db
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: sarak-web
+    ports:
+      - "8100:8080"
+    depends_on:
+      - api
+
+  scheduler:
+    build:
+      context: ./services/scheduler
+    container_name: sarak-scheduler
+    environment:
+      DATABASE_URL: postgresql+psycopg://sarak:sarak_secret_pass@postgres:5432/sarak_db
+      AWS_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      RUN_MODE: loop
+      SCHEDULE_INTERVAL_SECONDS: 900
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+
+  scraper-worker:
+    build:
+      context: ./services/scraper-worker
+    container_name: sarak-scraper-worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://sarak:sarak_secret_pass@postgres:5432/sarak_db
+      REDIS_URL: redis://redis:6379/0
+      AWS_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+
+  notifier:
+    build:
+      context: ./services/notifier
+    container_name: sarak-notifier
+    environment:
+      DATABASE_URL: postgresql+psycopg://sarak:sarak_secret_pass@postgres:5432/sarak_db
+      AWS_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localstack:4566
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-dummy_token_for_now}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+
+volumes:
+  pgdata:

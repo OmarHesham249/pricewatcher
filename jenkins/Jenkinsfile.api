@@ -1,0 +1,36 @@
+pipeline {
+  agent {
+    kubernetes {
+      yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: python
+    image: python:3.12-slim
+    command: ["sleep", "infinity"]
+  - name: trivy
+    image: aquasec/trivy:0.55.0
+    command: ["sleep", "infinity"]
+"""
+    }
+  }
+  stages {
+    stage('Unit Tests') {
+      steps {
+        container('python') {
+          dir('services/api') {
+            sh 'pip install -r requirements.txt && pytest'
+          }
+        }
+      }
+    }
+    stage('Filesystem Vulnerability Scan') {
+      steps {
+        container('trivy') {
+          sh 'trivy fs --exit-code 1 --severity HIGH,CRITICAL services/api'
+        }
+      }
+    }
+  }
+}
