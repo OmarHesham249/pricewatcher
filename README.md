@@ -13,8 +13,8 @@
    docker compose up --build -d
    ```
 3. افتح الموقع في المتصفح:
-   - **الواجهة العربية (Frontend):** `http://localhost:8080`
+   - **الواجهة العربية (Frontend):** `http://localhost:8100`
    - **توثيق الـ API (Swagger UI):** `http://localhost:8000/docs`
-   - **Prometheus Metrics:** `http://localhost:8080/metrics`
+   - **Prometheus Metrics:** `http://localhost:8100/metrics`
 
 > **ملاحظة:** يمكنك أيضاً فتح ملف `frontend/index.html` مباشرة في المتصفح بدون تشغيل الباك إند، وسيعمل تلقائياً في **وضع التجربة (Demo Mode)** مع رسوم بيانية تفاعلية.
