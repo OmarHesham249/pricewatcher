@@ -1,4 +1,4 @@
-import re
+﻿import re
 from bs4 import BeautifulSoup
 from app.parsers.base import BaseStoreParser, ScrapedProduct, ParserLayoutChangedError
 
@@ -39,6 +39,7 @@ class AmazonEgParser(BaseStoreParser):
             "#corePrice_feature_div .a-price .a-offscreen",
             "#priceblock_ourprice",
             "#priceblock_dealprice",
+            ".a-price .a-offscreen",
             ".a-price-whole",
         ]
         for sel in price_selectors:
