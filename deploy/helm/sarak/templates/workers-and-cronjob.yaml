@@ -1,0 +1,97 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scraper-worker
+  labels:
+    app: scraper-worker
+spec:
+  replicas: {{ .Values.replicaCount.scraperWorker }}
+  selector:
+    matchLabels:
+      app: scraper-worker
+  template:
+    metadata:
+      labels:
+        app: scraper-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9101"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: scraper-worker
+          image: "{{ if .Values.imageRegistry }}{{ .Values.imageRegistry }}/{{ end }}pricewatch-scraper-worker:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: 9101
+          envFrom:
+            - configMapRef:
+                name: sarak-config
+            - secretRef:
+                name: sarak-secrets
+          resources:
+            {{- toYaml .Values.resources.worker | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier
+  labels:
+    app: notifier
+spec:
+  replicas: {{ .Values.replicaCount.notifier }}
+  selector:
+    matchLabels:
+      app: notifier
+  template:
+    metadata:
+      labels:
+        app: notifier
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9102"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: notifier
+          image: "{{ if .Values.imageRegistry }}{{ .Values.imageRegistry }}/{{ end }}pricewatch-notifier:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: 9102
+          envFrom:
+            - configMapRef:
+                name: sarak-config
+            - secretRef:
+                name: sarak-secrets
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scheduler
+spec:
+  schedule: {{ .Values.config.scheduleCron | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          restartPolicy: OnFailure
+          containers:
+            - name: scheduler
+              image: "{{ if .Values.imageRegistry }}{{ .Values.imageRegistry }}/{{ end }}pricewatch-scheduler:{{ .Values.imageTag }}"
+              imagePullPolicy: {{ .Values.imagePullPolicy }}
+              env:
+                - name: RUN_MODE
+                  value: "once"
+              envFrom:
+                - configMapRef:
+                    name: sarak-config
+                - secretRef:
+                    name: sarak-secrets

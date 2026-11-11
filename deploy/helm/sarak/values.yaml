@@ -1,0 +1,46 @@
+﻿environment: staging
+imageRegistry: ""
+imagePullPolicy: IfNotPresent
+imageTag: "latest"
+
+replicaCount:
+  web: 1
+  api: 1
+  scraperWorker: 1
+  notifier: 1
+
+config:
+  awsRegion: "eu-central-1"
+  awsEndpointUrl: "http://localstack:4566"
+  sqsScrapeQueueName: "sarak-scrape-queue"
+  sqsAlertQueueName: "sarak-alert-queue"
+  redisUrl: "redis://redis:6379/0"
+  scheduleCron: "*/15 * * * *"
+
+secrets:
+  databaseUrl: "postgresql+psycopg://sarak:sarak_secret_pass@postgres:5432/sarak_db"
+  telegramBotToken: "dummy_token_for_now"
+  awsAccessKeyId: "test"
+  awsSecretAccessKey: "test"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  host: "sarak.local"
+  tlsEnabled: false
+
+resources:
+  api:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  worker:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
