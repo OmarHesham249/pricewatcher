@@ -1,0 +1,177 @@
+﻿pipeline {
+  agent {
+    kubernetes {
+      yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: jenkins-agent-sarak
+spec:
+  serviceAccountName: jenkins-deployer
+  containers:
+    - name: python
+      image: python:3.12.6-slim
+      command: ["sleep", "infinity"]
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+    - name: gitleaks
+      image: zricethezav/gitleaks:v8.21.2
+      command: ["sleep", "infinity"]
+    - name: trivy
+      image: aquasec/trivy:0.56.2
+      command: ["sleep", "infinity"]
+    - name: helm
+      image: alpine/helm:3.16.2
+      command: ["sleep", "infinity"]
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:v1.23.2-debug
+      command: ["sleep", "infinity"]
+"""
+    }
+  }
+
+  environment {
+    AWS_REGION       = "eu-central-1"
+    ECR_REGISTRY     = credentials('aws-ecr-registry-url')
+    IMAGE_TAG        = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'local'}"
+    HELM_CHART_PATH  = "deploy/helm/sarak"
+  }
+
+  options {
+    timeout(time: 25, unit: 'MINUTES')
+    disableConcurrentBuilds()
+  }
+
+  stages {
+    stage('1. Checkout & Secret Scan (Gitleaks)') {
+      steps {
+        container('gitleaks') {
+          sh 'gitleaks detect --source . --config .gitleaks.toml --verbose'
+        }
+      }
+    }
+
+    stage('2. Unit Tests (Pytest)') {
+      parallel {
+        stage('Test API') {
+          steps {
+            container('python') {
+              dir('services/api') {
+                sh '''
+                  pip install --no-cache-dir -r requirements.txt
+                  PYTHONPATH=. pytest -v
+                '''
+              }
+            }
+          }
+        }
+        stage('Test Scraper Parsers') {
+          steps {
+            container('python') {
+              dir('services/scraper-worker') {
+                sh '''
+                  pip install --no-cache-dir -r requirements.txt
+                  PYTHONPATH=. pytest -v
+                '''
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('3. Security & Helm Audit (Trivy + Helm Lint)') {
+      steps {
+        container('helm') {
+          sh "helm lint ${HELM_CHART_PATH}"
+        }
+        container('trivy') {
+          sh '''
+            trivy fs --scanners vuln,misconfig --exit-code 1 --severity CRITICAL services/
+            trivy config --exit-code 0 --severity HIGH,CRITICAL deploy/helm/sarak
+          '''
+        }
+      }
+    }
+
+    stage('4. Build & Push Images to AWS ECR (Kaniko)') {
+      when {
+        branch 'main'
+      }
+      steps {
+        container('kaniko') {
+          sh '''
+            for svc in api scheduler scraper-worker notifier; do
+              /kaniko/executor \
+                --context=dir://${WORKSPACE}/services/${svc} \
+                --dockerfile=${WORKSPACE}/services/${svc}/Dockerfile \
+                --destination=${ECR_REGISTRY}/pricewatch-${svc}:${IMAGE_TAG} \
+                --destination=${ECR_REGISTRY}/pricewatch-${svc}:latest
+            done
+
+            /kaniko/executor \
+              --context=dir://${WORKSPACE} \
+              --dockerfile=${WORKSPACE}/frontend/Dockerfile \
+              --destination=${ECR_REGISTRY}/pricewatch-web:${IMAGE_TAG} \
+              --destination=${ECR_REGISTRY}/pricewatch-web:latest
+          '''
+        }
+      }
+    }
+
+    stage('5. Deploy to Staging (Helm)') {
+      when {
+        branch 'main'
+      }
+      steps {
+        container('helm') {
+          sh '''
+            helm upgrade --install sarak ${HELM_CHART_PATH} \
+              --namespace sarak-staging --create-namespace \
+              --set environment=staging \
+              --set imageRegistry=${ECR_REGISTRY} \
+              --set imageTag=${IMAGE_TAG} \
+              --wait --timeout 5m
+          '''
+        }
+      }
+    }
+
+    stage('6. Staging Smoke Test') {
+      when {
+        branch 'main'
+      }
+      steps {
+        container('python') {
+          sh '''
+            python3 -c "import urllib.request; r = urllib.request.urlopen('http://api.sarak-staging.svc.cluster.local:8000/healthz', timeout=10); assert r.status == 200; print('Smoke test passed!')"
+          '''
+        }
+      }
+    }
+
+    stage('7. Manual Approval & Deploy to Prod') {
+      when {
+        branch 'main'
+      }
+      steps {
+        input message: "Deploy Sa'rak ${IMAGE_TAG} to Production?", ok: "Approve & Deploy"
+        container('helm') {
+          sh '''
+            helm upgrade --install sarak ${HELM_CHART_PATH} \
+              --namespace sarak-prod --create-namespace \
+              --set environment=prod \
+              --set imageRegistry=${ECR_REGISTRY} \
+              --set imageTag=${IMAGE_TAG} \
+              --set replicaCount.api=2 \
+              --set replicaCount.web=2 \
+              --wait --timeout 5m
+          '''
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+﻿title = "Sa'rak Gitleaks Configuration"
+
+[allowlist]
+description = "Ignore example env file and test fixtures"
+paths = [
+  '''^\.env\.example$''',
+  '''^deploy/helm/sarak/values\.yaml$''',
+  '''tests/.*'''
+]
